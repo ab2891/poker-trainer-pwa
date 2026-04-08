@@ -1,0 +1,21 @@
+# Rust
+engine/target/
+engine/Cargo.lock
+
+# Node
+web/node_modules/
+web/dist/
+web/.vite/
+
+# wasm-pack output (regenerable from `npm run engine:build`)
+web/src/wasm/
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# env
+.env
+.env.local

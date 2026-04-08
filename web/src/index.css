@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — based on the Fluxly aesthetic Agustin sent over Telegram on
+ * 2026-04-08. Pure black background, charcoal/iridium gunmetal palette,
+ * hairline glass borders, soft white text, no color saturation. ALL of these
+ * are CSS custom properties exposed to Tailwind 4 via `@theme`, so any
+ * `bg-bg`, `text-fg`, `border-glass-border` etc. utility class works.
+ *
+ * If you want to retune the palette, this block is the only place to edit.
+ */
+@theme {
+  /* Pure backgrounds */
+  --color-bg: #000000;                       /* the page itself */
+  --color-bg-elevated: #08080a;              /* a card sitting just above the bg */
+  --color-bg-glass: rgb(20 20 24 / 0.5);     /* the glass panel fill */
+  --color-bg-glass-strong: rgb(28 28 32 / 0.7);
+
+  /* Iridium / gunmetal text scale */
+  --color-fg: #fafafa;                       /* primary text — almost-white */
+  --color-fg-muted: #a8a8ad;                 /* secondary text — light iridium */
+  --color-fg-subtle: #6b6b72;                /* tertiary text — mid iridium */
+  --color-fg-faint: #44444a;                 /* disabled / hint */
+
+  /* Hairline borders for glass surfaces */
+  --color-glass-border: rgb(255 255 255 / 0.08);
+  --color-glass-border-strong: rgb(255 255 255 / 0.16);
+
+  /* The signature soft warm-white highlight on glass curves */
+  --color-glass-highlight: rgb(255 255 250 / 0.04);
+
+  /* Optional accent — a single warm white for hovers / focus rings */
+  --color-accent: #f5f5f0;
+
+  /* Typography. Edit these if you want to swap the serif. */
+  --font-serif: "Cormorant Garamond", "Source Serif Pro", Georgia, serif;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* Make the page itself the right base color before React mounts. */
+html, body, #root {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * The signature glass panel utility. Use as `<div class="glass">…</div>`.
+ * The two pseudo-elements approximate Apple's "ultraThinMaterial":
+ *   ::before — the blurred background tint
+ *   ::after  — a 1px hairline border that catches light at the top
+ *
+ * If you want a stronger glass, add the `glass-strong` modifier.
+ */
+.glass {
+  position: relative;
+  background: var(--color-bg-glass);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--color-glass-border);
+  border-radius: 1.25rem;
+  isolation: isolate;
+}
+
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    var(--color-glass-highlight) 0%,
+    transparent 40%
+  );
+  pointer-events: none;
+  z-index: -1;
+}
+
+.glass-strong {
+  background: var(--color-bg-glass-strong);
+  border-color: var(--color-glass-border-strong);
+}
+
+/*
+ * The signature "glass curve" highlight from the Fluxly screenshot — soft
+ * radial gradients positioned absolutely behind the content. Drop these into
+ * any container with `position: relative` to get the depth.
+ */
+.glass-stage {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-stage::before,
+.glass-stage::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(60px);
+}
+
+.glass-stage::before {
+  width: 70vw;
+  height: 70vw;
+  right: -25vw;
+  top: -10vw;
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgb(255 255 250 / 0.04) 0%,
+    transparent 60%
+  );
+}
+
+.glass-stage::after {
+  width: 50vw;
+  height: 50vw;
+  left: -15vw;
+  bottom: -10vw;
+  background: radial-gradient(
+    circle at 70% 70%,
+    rgb(168 168 173 / 0.03) 0%,
+    transparent 60%
+  );
+}
+
+/* Selection color stays on-brand. */
+::selection {
+  background: rgb(255 255 250 / 0.18);
+  color: var(--color-fg);
+}

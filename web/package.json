@@ -1,0 +1,28 @@
+{
+  "name": "poker-trainer-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "engine:build": "cd ../engine && wasm-pack build --target web --out-dir ../web/src/wasm --release"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "framer-motion": "^12.38.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^7.1.0",
+    "vite-plugin-pwa": "^1.2.0",
+    "vite-plugin-wasm": "^3.4.0",
+    "tailwindcss": "^4.2.0",
+    "@tailwindcss/vite": "^4.2.0"
+  }
+}
