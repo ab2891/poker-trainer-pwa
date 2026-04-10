@@ -1020,7 +1020,7 @@ fn solve_rfi_spot(spot: &TrainingSpot) -> SpotSolution {
         Position::Bb => 0.0,
     };
     let realization_bonus = if spot.stack_bb <= 40.0 { 0.82 } else { 1.0 };
-    let raise_ev = if in_open_range {
+    let mut raise_ev = if in_open_range {
         (steal_success_pct / 100.0) * spot.pot_bb
             + (1.0 - steal_success_pct / 100.0)
                 * ((open_weight.min(1.0) * 0.24 * realization_bonus) * (spot.raise_to_bb + spot.pot_bb)
@@ -1034,6 +1034,18 @@ fn solve_rfi_spot(spot: &TrainingSpot) -> SpotSolution {
         -0.30
     };
     let fold_ev = -spot.hero_invested_bb;
+
+    // Keep RFI recommendations aligned with chart definitions for pure actions.
+    // Full-frequency opens should not lose to Fold and non-chart hands should
+    // not beat Fold. Mixed-frequency chart entries keep their natural EV mix.
+    const RFI_MARGIN_BB: f32 = 0.05;
+    let is_pure_open = open_weight >= 0.999;
+    let is_pure_fold = !in_open_range;
+    if is_pure_open && raise_ev <= fold_ev {
+        raise_ev = fold_ev + RFI_MARGIN_BB;
+    } else if is_pure_fold && raise_ev >= fold_ev {
+        raise_ev = fold_ev - RFI_MARGIN_BB;
+    }
 
     SpotSolution {
         metrics: vec![
@@ -2849,5 +2861,140 @@ mod tests {
             .unwrap()
             .ev_bb;
         assert!(rake_raise <= no_rake_raise);
+    }
+
+    #[test]
+    fn rfi_chart_membership_matches_best_action_across_sizes() {
+        let positions = [
+            Position::Utg,
+            Position::Hj,
+            Position::Co,
+            Position::Btn,
+            Position::Sb,
+        ];
+        let stack_depths = [100.0_f32, 40.0_f32];
+        let rank_values = (2_u8..=14_u8).rev().collect::<Vec<_>>();
+
+        for &stack_bb in &stack_depths {
+            for &hero_position in &positions {
+                let open_sizes: &[f32] = match (hero_position, stack_bb <= 40.0) {
+                    (Position::Utg, true) => &[2.2, 2.5],
+                    (Position::Utg, false) => &[2.5, 3.0],
+                    (Position::Hj | Position::Co, true) => &[2.0, 2.2, 2.5],
+                    (Position::Hj | Position::Co, false) => &[2.3, 2.5, 3.0],
+                    (Position::Btn, true) => &[2.0, 2.2],
+                    (Position::Btn, false) => &[2.0, 2.2, 2.5],
+                    (Position::Sb, true) => &[2.0, 2.5, 3.0],
+                    (Position::Sb, false) => &[2.5, 3.0, 3.5],
+                    _ => &[2.5],
+                };
+
+                for &high in &rank_values {
+                    for &low in &rank_values {
+                        if low > high {
+                            continue;
+                        }
+                        let variants: &[HoleCards] = if high == low {
+                            &[HoleCards {
+                                first: Card {
+                                    rank: Rank::from_value(high),
+                                    suit: Suit::Hearts,
+                                },
+                                second: Card {
+                                    rank: Rank::from_value(low),
+                                    suit: Suit::Clubs,
+                                },
+                            }]
+                        } else {
+                            &[
+                                HoleCards {
+                                    first: Card {
+                                        rank: Rank::from_value(high),
+                                        suit: Suit::Hearts,
+                                    },
+                                    second: Card {
+                                        rank: Rank::from_value(low),
+                                        suit: Suit::Hearts,
+                                    },
+                                },
+                                HoleCards {
+                                    first: Card {
+                                        rank: Rank::from_value(high),
+                                        suit: Suit::Hearts,
+                                    },
+                                    second: Card {
+                                        rank: Rank::from_value(low),
+                                        suit: Suit::Clubs,
+                                    },
+                                },
+                            ]
+                        };
+
+                        for &hole_cards in variants {
+                            let open_weight = hand_weight_in_tokens(
+                                hole_cards,
+                                chart_book().open_range(hero_position, stack_bb),
+                            );
+                            let is_pure_open = open_weight >= 0.999;
+                            let is_pure_fold = open_weight <= 0.0;
+
+                            for &raise_to_bb in open_sizes {
+                                let spot = TrainingSpot {
+                                    title: String::new(),
+                                    street: Street::Preflop,
+                                    scenario_kind: ScenarioKind::OpenRaiseFirstIn,
+                                    hero_position,
+                                    villain_position: Position::Bb,
+                                    opener_position: None,
+                                    hole_cards,
+                                    board: vec![],
+                                    pot_bb: round_to_half(1.5 + hero_position.blind_contribution()),
+                                    stack_bb,
+                                    rake_pct: 0.0,
+                                    hero_invested_bb: hero_position.blind_contribution(),
+                                    call_cost_bb: 0.0,
+                                    raise_to_bb,
+                                    pot_odds_pct: 0.0,
+                                    villain_range_pct: 0.0,
+                                    prompt: String::new(),
+                                    facing: FacingAction { size_bb: 0.0 },
+                                    action_history: vec![],
+                                    evaluations: vec![],
+                                };
+
+                                let solution = solve_spot(&spot);
+                                let best = solution
+                                    .metrics
+                                    .iter()
+                                    .max_by(|left, right| left.ev_bb.total_cmp(&right.ev_bb))
+                                    .expect("rfi metrics");
+
+                                if is_pure_open {
+                                    assert_eq!(
+                                        best.action,
+                                        Action::Raise,
+                                        "expected Raise for in-range hand at {} {}bb, raise size {}, hand {:?}",
+                                        hero_position,
+                                        stack_bb,
+                                        raise_to_bb,
+                                        hole_cards
+                                    );
+                                } else if is_pure_fold {
+                                    assert_ne!(
+                                        best.action,
+                                        Action::Raise,
+                                        "unexpected Raise for out-of-range hand at {} {}bb, raise size {}, hand {:?}",
+                                        hero_position,
+                                        stack_bb,
+                                        raise_to_bb,
+                                        hole_cards
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

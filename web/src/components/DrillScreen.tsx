@@ -27,6 +27,8 @@ import {
   type Action,
   type DecisionFeedback,
   type TrainingConfig,
+  type TrainingMode,
+  type TrainingModeOption,
   type TrainingSpot,
   cardLabel,
   defaultConfig,
@@ -34,10 +36,15 @@ import {
   generateSpot,
   positionLabel,
   suitIsRed,
+  trainingModes,
 } from "../engine";
+import { chartPolicyFeedback, policyFrequenciesForSpot } from "../preflop-policy";
 
 export function DrillScreen() {
   const [config, setConfig] = useState<TrainingConfig | null>(null);
+  const [draftStackBb, setDraftStackBb] = useState(50);
+  const [draftRakePct, setDraftRakePct] = useState(0);
+  const [modeOptions, setModeOptions] = useState<TrainingModeOption[]>([]);
   const [spot, setSpot] = useState<TrainingSpot | null>(null);
   const [feedback, setFeedback] = useState<DecisionFeedback | null>(null);
   const [stats, setStats] = useState({ answered: 0, correct: 0 });
@@ -48,8 +55,17 @@ export function DrillScreen() {
     (async () => {
       try {
         const cfg = await defaultConfig();
-        setConfig(cfg);
-        const first = await generateSpot(cfg);
+        const options = await trainingModes();
+        const tunedConfig: TrainingConfig = {
+          ...cfg,
+          stack_depth_bb: 50,
+          rake_pct: 0,
+        };
+        setConfig(tunedConfig);
+        setDraftStackBb(50);
+        setDraftRakePct(0);
+        setModeOptions(options);
+        const first = await generateSpot(tunedConfig);
         setSpot(first);
       } catch (e) {
         setError((e as Error).message ?? String(e));
@@ -60,7 +76,9 @@ export function DrillScreen() {
   async function handleAction(action: Action) {
     if (!spot || feedback) return;
     try {
-      const result = await evaluateAction(spot, action);
+      const baseline = await evaluateAction(spot, action);
+      const policyResult = chartPolicyFeedback(spot, action);
+      const result = policyResult ?? baseline;
       setFeedback(result);
       setStats((s) => ({
         answered: s.answered + 1,
@@ -76,6 +94,39 @@ export function DrillScreen() {
     try {
       const next = await generateSpot(config);
       setSpot(next);
+      setFeedback(null);
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    }
+  }
+
+  async function handleModeChange(mode: TrainingMode) {
+    if (!config || mode === config.training_mode) return;
+    try {
+      const nextConfig: TrainingConfig = {
+        ...config,
+        training_mode: mode,
+      };
+      setConfig(nextConfig);
+      const nextSpot = await generateSpot(nextConfig);
+      setSpot(nextSpot);
+      setFeedback(null);
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    }
+  }
+
+  async function handleApplySettings() {
+    if (!config) return;
+    const nextConfig: TrainingConfig = {
+      ...config,
+      stack_depth_bb: clampStackBb(draftStackBb),
+      rake_pct: clampRakePct(draftRakePct),
+    };
+    try {
+      setConfig(nextConfig);
+      const nextSpot = await generateSpot(nextConfig);
+      setSpot(nextSpot);
       setFeedback(null);
     } catch (e) {
       setError((e as Error).message ?? String(e));
@@ -112,8 +163,67 @@ export function DrillScreen() {
         want to apply that to the position name or the prompt verb.
       */}
       <header className="text-center">
+        {config && modeOptions.length > 0 && (
+          <div className="glass mx-auto mb-3 p-1 inline-flex flex-wrap justify-center gap-1 max-w-full">
+            {modeOptions.map((mode) => {
+              const active = config.training_mode === mode.value;
+              return (
+                <button
+                  key={mode.value}
+                  onClick={() => handleModeChange(mode.value)}
+                  className={
+                    "px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition-colors duration-200 " +
+                    (active
+                      ? "text-fg bg-bg-glass-strong"
+                      : "text-fg-muted hover:text-fg")
+                  }
+                >
+                  {mode.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {config && (
+          <div className="glass glass-strong mx-auto mb-4 px-4 py-3 inline-flex flex-wrap items-end justify-center gap-3 max-w-full text-left">
+            <label className="flex flex-col gap-1">
+              <span className="text-fg-subtle font-mono text-[10px] uppercase tracking-widest">
+                Stack (BB)
+              </span>
+              <input
+                type="number"
+                min={20}
+                max={300}
+                step={5}
+                value={draftStackBb}
+                onChange={(event) => setDraftStackBb(Number(event.target.value) || 0)}
+                className="glass px-3 py-1.5 w-24 text-sm text-fg outline-none"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-fg-subtle font-mono text-[10px] uppercase tracking-widest">
+                Rake (%)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.1}
+                value={draftRakePct}
+                onChange={(event) => setDraftRakePct(Number(event.target.value) || 0)}
+                className="glass px-3 py-1.5 w-24 text-sm text-fg outline-none"
+              />
+            </label>
+            <button
+              onClick={handleApplySettings}
+              className="glass px-4 py-2 text-sm text-fg hover:text-accent transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        )}
         <p className="text-fg-subtle font-mono text-xs uppercase tracking-widest mb-2">
-          {spot.scenario_kind} · {spot.stack_bb} BB deep
+          {scenarioLabel(spot.scenario_kind)} · {spot.stack_bb} BB deep
         </p>
         <h1 className="font-serif text-4xl sm:text-5xl text-fg leading-tight">
           You are <span className="italic">{positionLabel(spot.hero_position)}</span>
@@ -176,6 +286,11 @@ export function DrillScreen() {
       {/* Feedback. TODO: redesign — show EV comparison nicely. */}
       {feedback && (
         <div className="glass glass-strong p-6 max-w-lg w-full flex flex-col gap-3">
+          {policyFrequenciesForSpot(spot) && (
+            <p className="text-fg-faint font-mono text-[10px] uppercase tracking-widest">
+              chart policy grading active
+            </p>
+          )}
           <div className="flex items-baseline justify-between">
             <h2
               className={
@@ -254,4 +369,25 @@ function ActionButton({ label, onClick }: { label: string; onClick: () => void }
       {label}
     </button>
   );
+}
+
+function scenarioLabel(kind: TrainingSpot["scenario_kind"]): string {
+  switch (kind) {
+    case "OpenRaiseFirstIn":
+      return "RFI";
+    case "FacingOpen":
+      return "Vs Open";
+    case "FacingThreeBet":
+      return "Vs 3-Bet";
+    case "FacingSqueeze":
+      return "Vs Squeeze";
+  }
+}
+
+function clampStackBb(value: number): number {
+  return Math.max(20, Math.min(300, Number.isFinite(value) ? value : 50));
+}
+
+function clampRakePct(value: number): number {
+  return Math.max(0, Math.min(10, Number.isFinite(value) ? value : 0));
 }
