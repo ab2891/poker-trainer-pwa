@@ -7,7 +7,7 @@
  *  - <Header /> — placeholder glass nav pill at the top
  *  - <DrillScreen /> — placeholder showing one drill end-to-end so you can
  *    confirm the engine wiring works. REPLACE THIS WITH YOUR OWN UI.
- *  - <AboutFooter /> — placeholder Ko-fi link, About text
+ *  - <AboutFooter /> — product/about information
  *
  * Your job: redesign each of these (or replace them entirely) with the
  * Fluxly-style aesthetic you described. The engine layer in `engine.ts`

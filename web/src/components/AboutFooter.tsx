@@ -1,13 +1,5 @@
 /**
- * AboutFooter.tsx — placeholder About + tip-jar screen.
- *
- * REPLACE THIS WITH YOUR OWN COPY. The structure here is just a frame:
- *  - A hero "what is this" paragraph
- *  - A tip-jar block linking to Ko-fi (placeholder URL!)
- *  - A small "made by" line
- *
- * IMPORTANT: replace `https://ko-fi.com/ab2891` with your real Ko-fi URL once
- * you create the account. Same for any GitHub Sponsors / Patreon links.
+ * AboutFooter.tsx — About + product info.
  */
 
 export function AboutFooter() {
@@ -23,19 +15,33 @@ export function AboutFooter() {
           <span className="italic">No paywalls. Ever.</span>
         </h1>
         <p className="text-fg-muted mt-6 max-w-md mx-auto text-sm leading-relaxed">
-          {/* TODO: rewrite this in your voice. */}
-          A preflop GTO trainer that doesn't lock features behind a subscription
-          and doesn't run ads. Drill, learn, get better. If it's useful and you
-          want to throw a few dollars in the tip jar, the link's below.
+          Poker Trainer is an interactive preflop training app for no-limit
+          hold'em. You get randomized spots, immediate EV-based feedback, and
+          explanations designed to help you learn position, ranges, and
+          decision quality over time.
         </p>
       </header>
 
+      <section className="glass px-7 py-5 max-w-xl w-full">
+        <p className="text-fg-subtle font-mono text-[10px] uppercase tracking-widest mb-2">
+          What You Get
+        </p>
+        <p className="text-fg-muted text-sm leading-relaxed">
+          Practice first-in opens, defense versus opens, and defense versus
+          3-bets and squeezes. The trainer uses a Rust engine and returns the
+          highest-EV action for each generated preflop node under the current
+          stack and rake settings.
+        </p>
+      </section>
+
       <div className="glass glass-strong px-8 py-6 flex flex-col items-center gap-3 max-w-sm w-full">
         <p className="text-fg-subtle font-mono text-[10px] uppercase tracking-widest">
-          Tip jar — entirely optional
+          Product Status
+        </p>
+        <p className="text-fg text-center text-sm leading-relaxed">
+          Live preflop training product with ongoing feature updates.
         </p>
         <a
-          // TODO: replace with your real Ko-fi URL once you create the page.
           href="https://ko-fi.com/ab2891"
           target="_blank"
           rel="noreferrer"
@@ -44,7 +50,8 @@ export function AboutFooter() {
           ko-fi.com/ab2891
         </a>
         <p className="text-fg-faint text-xs text-center">
-          Card details never touch this site. Ko-fi handles everything.
+          Practice is available directly in the app. Commercial offerings and
+          advanced tiers are published on official release channels.
         </p>
       </div>
 
