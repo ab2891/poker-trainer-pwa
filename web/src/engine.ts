@@ -136,7 +136,7 @@ export async function ensureEngineReady(): Promise<void> {
       initialized = true;
     });
   }
-  return initPromise;
+  await initPromise;
 }
 
 // ----------------------------------------------------------------------------

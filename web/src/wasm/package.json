@@ -1,0 +1,17 @@
+{
+  "name": "poker-trainer-engine",
+  "type": "module",
+  "description": "Preflop GTO trainer engine, ported from the Rust desktop version, exposed to JS via wasm-bindgen",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "poker_trainer_engine_bg.wasm",
+    "poker_trainer_engine.js",
+    "poker_trainer_engine.d.ts"
+  ],
+  "main": "poker_trainer_engine.js",
+  "types": "poker_trainer_engine.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

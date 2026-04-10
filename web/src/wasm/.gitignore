@@ -1,0 +1,7 @@
+*
+!.gitignore
+!package.json
+!poker_trainer_engine.js
+!poker_trainer_engine.d.ts
+!poker_trainer_engine_bg.wasm
+!poker_trainer_engine_bg.wasm.d.ts
