@@ -1649,7 +1649,7 @@ pub fn build_feedback_explanation(
                 best.equity_pct, best.fold_equity_pct, best.ev_bb
             ),
             Action::Call => format!(
-                "Call is best here. Your simulated equity is {:.1}% against the range, which clears the {:.1}% pot-odds threshold without forcing extra money into a stronger continuing range.",
+                "Call is best here. Raw simulated equity is {:.1}% versus a {:.1}% baseline pot-odds reference, and after realization plus rake adjustment the call line keeps the highest EV without over-investing.",
                 best.equity_pct, spot.pot_odds_pct
             ),
             Action::Fold => format!(
@@ -1669,18 +1669,14 @@ pub fn build_feedback_explanation(
             best.ev_bb - selected.ev_bb
         ),
         Action::Call => format!(
-            "{} misses the best middle ground. {} Calling wins because {:.1}% simulated equity clears the {:.1}% pot-odds threshold, but the hand does not justify the extra investment of a raise.",
+            "{} misses the best middle ground. {} Calling wins because after realization and rake adjustment it keeps more EV than the alternatives, while the hand does not justify the extra investment of a raise.",
             selected.action,
-            selected.explanation,
-            best.equity_pct,
-            spot.pot_odds_pct
+            selected.explanation
         ),
         Action::Fold => format!(
-            "{} continues too loose here. {} The hand only shows {:.1}% simulated equity into a {:.1}% pot-odds threshold before realization and rake penalties, so folding preserves more EV.",
+            "{} continues too loose here. {} Raw simulated equity can look close, but once realization penalties and rake are applied, folding preserves more EV.",
             selected.action,
-            selected.explanation,
-            spot.evaluation_for(Action::Call).equity_pct,
-            spot.pot_odds_pct
+            selected.explanation
         ),
     }
 }
@@ -1749,7 +1745,7 @@ fn call_line_reason(
         ""
     };
     format!(
-        "{} {} {} Simulated equity is {:.1}% against a {:.1}% pot-odds requirement.",
+        "{} {} {} Simulated equity is {:.1}% versus a {:.1}% baseline pot-odds reference; final EV also depends on realization and rake.",
         hand_note, position_note, depth_note, equity_pct, pot_odds_pct
     )
 }
@@ -1763,7 +1759,7 @@ fn fold_line_reason(profile: &HandProfile, pot_odds_pct: f32, equity_pct: f32) -
         "The hand does not clear the continue threshold."
     };
     format!(
-        "{} Simulated equity only lands around {:.1}%, which is too low once you compare it to the {:.1}% pot-odds requirement and apply realization penalties.",
+        "{} Simulated equity only lands around {:.1}%; after realization penalties and rake, that is not enough versus a {:.1}% baseline pot-odds reference.",
         hand_note, equity_pct, pot_odds_pct
     )
 }
