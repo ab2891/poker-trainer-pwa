@@ -7,8 +7,14 @@ web/node_modules/
 web/dist/
 web/.vite/
 
-# wasm-pack output (regenerable from `npm run engine:build`)
-web/src/wasm/
+# wasm-pack output
+web/src/wasm/*
+!web/src/wasm/.gitignore
+!web/src/wasm/package.json
+!web/src/wasm/poker_trainer_engine.js
+!web/src/wasm/poker_trainer_engine.d.ts
+!web/src/wasm/poker_trainer_engine_bg.wasm
+!web/src/wasm/poker_trainer_engine_bg.wasm.d.ts
 
 # editor / OS
 .DS_Store

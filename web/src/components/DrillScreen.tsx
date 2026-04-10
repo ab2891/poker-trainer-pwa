@@ -38,7 +38,6 @@ import {
   suitIsRed,
   trainingModes,
 } from "../engine";
-import { chartPolicyFeedback, policyFrequenciesForSpot } from "../preflop-policy";
 
 export function DrillScreen() {
   const [config, setConfig] = useState<TrainingConfig | null>(null);
@@ -76,9 +75,7 @@ export function DrillScreen() {
   async function handleAction(action: Action) {
     if (!spot || feedback) return;
     try {
-      const baseline = await evaluateAction(spot, action);
-      const policyResult = chartPolicyFeedback(spot, action);
-      const result = policyResult ?? baseline;
+      const result = await evaluateAction(spot, action);
       setFeedback(result);
       setStats((s) => ({
         answered: s.answered + 1,
@@ -286,11 +283,6 @@ export function DrillScreen() {
       {/* Feedback. TODO: redesign — show EV comparison nicely. */}
       {feedback && (
         <div className="glass glass-strong p-6 max-w-lg w-full flex flex-col gap-3">
-          {policyFrequenciesForSpot(spot) && (
-            <p className="text-fg-faint font-mono text-[10px] uppercase tracking-widest">
-              chart policy grading active
-            </p>
-          )}
           <div className="flex items-baseline justify-between">
             <h2
               className={
