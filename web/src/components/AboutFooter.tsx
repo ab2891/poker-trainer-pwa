@@ -36,10 +36,11 @@ export function AboutFooter() {
 
       <div className="glass glass-strong px-8 py-6 flex flex-col items-center gap-3 max-w-sm w-full">
         <p className="text-fg-subtle font-mono text-[10px] uppercase tracking-widest">
-          Product Status
+          Tip jar — entirely optional
         </p>
         <p className="text-fg text-center text-sm leading-relaxed">
-          Live preflop training product with ongoing feature updates.
+          If the trainer helps your game and you want to support development,
+          you can leave a tip below.
         </p>
         <a
           href="https://ko-fi.com/ab2891"
@@ -50,8 +51,8 @@ export function AboutFooter() {
           ko-fi.com/ab2891
         </a>
         <p className="text-fg-faint text-xs text-center">
-          Practice is available directly in the app. Commercial offerings and
-          advanced tiers are published on official release channels.
+          Tips are optional appreciation payments. Access to training features
+          does not require a tip.
         </p>
       </div>
 
