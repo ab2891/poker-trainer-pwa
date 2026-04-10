@@ -1,0 +1,10 @@
+{
+  "name": "Poker Trainer",
+  "short_name": "Poker Trainer",
+  "description": "Free, no-paywall preflop GTO trainer",
+  "theme_color": "#0a0a0c",
+  "background_color": "#000000",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/"
+}
