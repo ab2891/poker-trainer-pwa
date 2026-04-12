@@ -66,6 +66,7 @@ export interface ActionEvaluation {
   ev_bb: number;
   equity_pct: number;
   fold_equity_pct: number;
+  solver_frequency: number | null;
   explanation: string;
 }
 

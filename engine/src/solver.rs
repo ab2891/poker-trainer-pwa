@@ -36,7 +36,7 @@ impl Player {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum NodeKind {
+pub enum NodeKind {
     OpenerOpen,
     ResponderFacing,
     OpenerFacing3Bet,
@@ -138,6 +138,7 @@ impl GameConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct SolverResult {
     pub strategies: HashMap<(NodeKind, u8), Vec<f32>>,
 }

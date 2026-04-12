@@ -5,6 +5,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 
 use crate::charts::chart_book;
+use crate::equity::EquityTable;
+use crate::solver::{self, SolverResult};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Street {
@@ -344,6 +346,7 @@ pub struct ActionEvaluation {
     pub ev_bb: f32,
     pub equity_pct: f32,
     pub fold_equity_pct: f32,
+    pub solver_frequency: Option<f32>,
     pub explanation: String,
 }
 
@@ -375,7 +378,15 @@ impl TrainingSpot {
     pub fn best_action(&self) -> &ActionEvaluation {
         self.evaluations
             .iter()
-            .max_by(|left, right| left.ev_bb.total_cmp(&right.ev_bb))
+            .max_by(|left, right| {
+                let lf = left.solver_frequency.unwrap_or(-1.0);
+                let rf = right.solver_frequency.unwrap_or(-1.0);
+                if (lf - rf).abs() > 0.05 {
+                    lf.total_cmp(&rf)
+                } else {
+                    left.ev_bb.total_cmp(&right.ev_bb)
+                }
+            })
             .expect("training spot requires evaluations")
     }
 
@@ -391,6 +402,33 @@ impl TrainingSpot {
     }
 
     pub fn mixed_strategy(&self) -> Option<Vec<MixedAction>> {
+        let has_solver = self.evaluations.iter().any(|e| e.solver_frequency.is_some());
+
+        if has_solver {
+            let mut actions: Vec<MixedAction> = self
+                .evaluations
+                .iter()
+                .filter_map(|e| {
+                    let freq = e.solver_frequency.unwrap_or(0.0);
+                    if freq >= 0.05 {
+                        Some(MixedAction {
+                            action: e.action,
+                            frequency_pct: (freq * 1000.0).round() / 10.0,
+                            ev_bb: e.ev_bb,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            actions.sort_by(|a, b| b.frequency_pct.total_cmp(&a.frequency_pct));
+
+            if actions.len() >= 2 {
+                return Some(actions);
+            }
+            return None;
+        }
+
         let mut sorted: Vec<&ActionEvaluation> = self.evaluations.iter().collect();
         sorted.sort_by(|a, b| b.ev_bb.total_cmp(&a.ev_bb));
         if sorted.len() < 2 {
@@ -632,6 +670,56 @@ struct SpotSolution {
 }
 
 static EQUITY_CACHE: OnceLock<Mutex<HashMap<u64, f32>>> = OnceLock::new();
+static EQUITY_TABLE: OnceLock<EquityTable> = OnceLock::new();
+static SOLVER_CACHE: OnceLock<Mutex<HashMap<(u8, u8, u8), SolverResult>>> = OnceLock::new();
+
+fn get_equity_table() -> &'static EquityTable {
+    EQUITY_TABLE.get_or_init(|| EquityTable::compute(100))
+}
+
+fn get_solver_result(opener: Position, responder: Position, stack_bb: f32) -> SolverResult {
+    let cache = SOLVER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let stack_bucket = if stack_bb <= 30.0 { 0u8 } else if stack_bb <= 60.0 { 1 } else if stack_bb <= 120.0 { 2 } else { 3 };
+    let key = (opener as u8, responder as u8, stack_bucket);
+
+    let mut map = cache.lock().unwrap();
+    if let Some(result) = map.get(&key) {
+        return result.clone();
+    }
+
+    let opener_ip = opener.postflop_order() > responder.postflop_order();
+    let result = solver::solve_matchup(get_equity_table(), stack_bb, opener_ip, 8000);
+    map.insert(key, result.clone());
+    result
+}
+
+fn solver_frequencies(spot: &TrainingSpot) -> Option<[f32; 3]> {
+    let hand_class = crate::equity::HandClass::from_hole_cards(spot.hole_cards).index();
+
+    match spot.scenario_kind {
+        ScenarioKind::OpenRaiseFirstIn => {
+            let responder = Position::Bb;
+            let result = get_solver_result(spot.hero_position, responder, spot.stack_bb);
+            let [fold, raise] = result.opener_open_strategy(hand_class);
+            Some([raise, 0.0, fold])
+        }
+        ScenarioKind::FacingOpen => {
+            let result = get_solver_result(spot.villain_position, spot.hero_position, spot.stack_bb);
+            let [fold, call, raise] = result.responder_vs_open(hand_class);
+            Some([raise, call, fold])
+        }
+        ScenarioKind::FacingThreeBet => {
+            let result = get_solver_result(spot.hero_position, spot.villain_position, spot.stack_bb);
+            let [fold, call, raise] = result.opener_vs_3bet(hand_class);
+            Some([raise, call, fold])
+        }
+        ScenarioKind::FacingSqueeze => {
+            let result = get_solver_result(spot.hero_position, spot.villain_position, spot.stack_bb);
+            let [fold, call, raise] = result.opener_vs_3bet(hand_class);
+            Some([raise, call, fold])
+        }
+    }
+}
 
 pub fn generate_training_spot(config: TrainingConfig) -> TrainingSpot {
     let mut rng = rand::thread_rng();
@@ -1183,6 +1271,8 @@ fn build_range_model(spot: &TrainingSpot) -> RangeModel {
 fn build_action_evaluations(spot: &TrainingSpot, solution: &SpotSolution) -> Vec<ActionEvaluation> {
     let profile = analyze_hand(spot.hole_cards);
     let hero_is_ip = spot.hero_is_ip();
+    let freqs = solver_frequencies(spot);
+
     solution
         .metrics
         .iter()
@@ -1214,11 +1304,18 @@ fn build_action_evaluations(spot: &TrainingSpot, solution: &SpotSolution) -> Vec
                 }
             };
 
+            let solver_frequency = freqs.map(|f| match metric.action {
+                Action::Raise => f[0],
+                Action::Call => f[1],
+                Action::Fold => f[2],
+            });
+
             ActionEvaluation {
                 action: metric.action,
                 ev_bb: metric.ev_bb,
                 equity_pct: metric.equity_pct,
                 fold_equity_pct: metric.fold_equity_pct,
+                solver_frequency,
                 explanation,
             }
         })
