@@ -10,7 +10,9 @@
 //! standard Rust API.
 
 pub mod charts;
+pub mod equity;
 pub mod model;
+pub mod solver;
 pub mod wasm;
 
 pub use model::{
