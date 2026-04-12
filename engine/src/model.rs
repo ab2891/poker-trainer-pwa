@@ -935,7 +935,7 @@ fn solve_spot(spot: &TrainingSpot) -> SpotSolution {
     let range_model = build_range_model(spot);
     let villain_range_pct = combo_percent(weighted_combo_total(&range_model.primary));
 
-    let sample_count = if spot.stack_bb <= 40.0 { 180 } else { 240 };
+    let sample_count = if spot.stack_bb <= 40.0 { 360 } else { 480 };
     let call_equity_pct = simulate_equity_pct(spot.hole_cards, &range_model.primary, sample_count);
     let continue_equity_pct = simulate_equity_pct(
         spot.hole_cards,
@@ -1808,7 +1808,7 @@ fn call_realization(
     } else {
         0.0
     };
-    realization += if stack_bb <= 40.0 { -0.02 } else { 0.0 };
+    realization += if stack_bb <= 40.0 { 0.02 } else { 0.0 };
     realization.clamp(0.72, 1.0)
 }
 
@@ -1831,13 +1831,13 @@ fn adjusted_fold_equity_pct(
     aggression_score -= if profile.gap >= 4 { 0.12 } else { 0.0 };
     aggression_score = aggression_score.clamp(0.05, 1.0);
 
-    let depth_modifier = if stack_bb <= 40.0 { 0.92 } else { 1.0 };
-    let base_factor = 0.28 + aggression_score * 0.62;
+    let depth_modifier = if stack_bb <= 40.0 { 0.95 } else { 1.0 };
+    let base_factor = 0.55 + aggression_score * 0.40;
     let cap = match scenario_kind {
         ScenarioKind::OpenRaiseFirstIn => 0.0,
         ScenarioKind::FacingOpen => 46.0,
-        ScenarioKind::FacingThreeBet => 32.0,
-        ScenarioKind::FacingSqueeze => 26.0,
+        ScenarioKind::FacingThreeBet => 56.0,
+        ScenarioKind::FacingSqueeze => 42.0,
     };
     if matches!(scenario_kind, ScenarioKind::OpenRaiseFirstIn) {
         0.0
@@ -1857,7 +1857,7 @@ fn raise_realization(profile: &HandProfile, hero_is_ip: bool, stack_bb: f32) -> 
     };
     realization -= if profile.gap >= 4 { 0.04 } else { 0.0 };
     realization += if stack_bb <= 40.0 { 0.01 } else { 0.0 };
-    realization.clamp(0.80, 1.02)
+    realization.clamp(0.80, 1.0)
 }
 
 fn weak_bluff_penalty_bb(profile: &HandProfile, scenario_kind: ScenarioKind, stack_bb: f32) -> f32 {
