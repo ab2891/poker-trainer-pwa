@@ -411,6 +411,20 @@ export function chartPolicyFeedback(
 
   const explanation = explainPolicyDecision(spot, selectedAction, bestAction, frequencies);
 
+  const mixedActions = allActions
+    .filter((a) => frequencies[a] >= 0.05)
+    .map((a) => ({
+      action: a,
+      frequency_pct: Math.round(frequencies[a] * 1000) / 10,
+      ev_bb: spot.evaluations.find((e) => e.action === a)?.ev_bb ?? 0,
+    }))
+    .sort((a, b) => b.frequency_pct - a.frequency_pct);
+
+  const isMixed = mixedActions.length >= 2;
+  const isCorrect = isMixed
+    ? mixedActions.some((m) => m.action === selectedAction)
+    : selectedAction === bestAction;
+
   return {
     selected_action: selectedAction,
     selected_ev_bb: selectedEval.ev_bb,
@@ -421,7 +435,9 @@ export function chartPolicyFeedback(
     correct_equity_pct: bestEval.equity_pct,
     correct_fold_equity_pct: bestEval.fold_equity_pct,
     pot_odds_pct: spot.pot_odds_pct,
-    is_correct: selectedAction === bestAction,
+    is_correct: isCorrect,
+    is_mixed: isMixed,
+    mixed_actions: mixedActions,
     explanation,
   };
 }

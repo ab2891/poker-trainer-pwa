@@ -670,14 +670,47 @@ struct SpotSolution {
 }
 
 static EQUITY_CACHE: OnceLock<Mutex<HashMap<u64, f32>>> = OnceLock::new();
-static EQUITY_TABLE: OnceLock<EquityTable> = OnceLock::new();
+static PRECOMPUTED: OnceLock<PrecomputedStrategies> = OnceLock::new();
 static SOLVER_CACHE: OnceLock<Mutex<HashMap<(u8, u8, u8), SolverResult>>> = OnceLock::new();
 
-fn get_equity_table() -> &'static EquityTable {
-    EQUITY_TABLE.get_or_init(|| EquityTable::compute(100))
+struct PrecomputedStrategies {
+    data: serde_json::Value,
 }
 
-fn get_solver_result(opener: Position, responder: Position, stack_bb: f32) -> SolverResult {
+impl PrecomputedStrategies {
+    fn load() -> Self {
+        let raw = include_str!("../data/solved_strategies.json");
+        PrecomputedStrategies {
+            data: serde_json::from_str(raw).expect("valid solved_strategies.json"),
+        }
+    }
+
+    fn lookup(&self, opener: Position, responder: Position, stack_bb: f32, hand_label: &str, node: &str) -> Option<Vec<f32>> {
+        let stack_bucket = if stack_bb <= 30.0 { 0 } else if stack_bb <= 60.0 { 1 } else { 2 };
+        let opener_str = format!("{:?}", opener);
+        let responder_str = format!("{:?}", responder);
+
+        let matchups = self.data.get("matchups")?.as_array()?;
+        for m in matchups {
+            if m.get("opener")?.as_str()? == opener_str
+                && m.get("responder")?.as_str()? == responder_str
+                && m.get("stack_bucket")?.as_u64()? == stack_bucket as u64
+            {
+                let freqs = m.get("hands")?.get(hand_label)?.get(node)?;
+                return freqs.as_array().map(|arr| {
+                    arr.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect()
+                });
+            }
+        }
+        None
+    }
+}
+
+fn get_precomputed() -> &'static PrecomputedStrategies {
+    PRECOMPUTED.get_or_init(PrecomputedStrategies::load)
+}
+
+fn get_solver_result_fallback(opener: Position, responder: Position, stack_bb: f32) -> SolverResult {
     let cache = SOLVER_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let stack_bucket = if stack_bb <= 30.0 { 0u8 } else if stack_bb <= 60.0 { 1 } else if stack_bb <= 120.0 { 2 } else { 3 };
     let key = (opener as u8, responder as u8, stack_bucket);
@@ -687,35 +720,59 @@ fn get_solver_result(opener: Position, responder: Position, stack_bb: f32) -> So
         return result.clone();
     }
 
+    let eq_table = crate::equity::EquityTable::compute(80);
     let opener_ip = opener.postflop_order() > responder.postflop_order();
-    let result = solver::solve_matchup(get_equity_table(), stack_bb, opener_ip, 8000);
+    let result = solver::solve_matchup(&eq_table, stack_bb, opener_ip, 5000);
     map.insert(key, result.clone());
     result
 }
 
 fn solver_frequencies(spot: &TrainingSpot) -> Option<[f32; 3]> {
-    let hand_class = crate::equity::HandClass::from_hole_cards(spot.hole_cards).index();
+    let hc = crate::equity::HandClass::from_hole_cards(spot.hole_cards);
+    let label = hc.label();
+    let class_idx = hc.index();
+
+    let precomputed = get_precomputed();
 
     match spot.scenario_kind {
         ScenarioKind::OpenRaiseFirstIn => {
-            let responder = Position::Bb;
-            let result = get_solver_result(spot.hero_position, responder, spot.stack_bb);
-            let [fold, raise] = result.opener_open_strategy(hand_class);
+            if let Some(freqs) = precomputed.lookup(spot.hero_position, Position::Bb, spot.stack_bb, &label, "open") {
+                if freqs.len() >= 2 {
+                    return Some([freqs[1], 0.0, freqs[0]]);
+                }
+            }
+            let result = get_solver_result_fallback(spot.hero_position, Position::Bb, spot.stack_bb);
+            let [fold, raise] = result.opener_open_strategy(class_idx);
             Some([raise, 0.0, fold])
         }
         ScenarioKind::FacingOpen => {
-            let result = get_solver_result(spot.villain_position, spot.hero_position, spot.stack_bb);
-            let [fold, call, raise] = result.responder_vs_open(hand_class);
+            if let Some(freqs) = precomputed.lookup(spot.villain_position, spot.hero_position, spot.stack_bb, &label, "vs_open") {
+                if freqs.len() >= 3 {
+                    return Some([freqs[2], freqs[1], freqs[0]]);
+                }
+            }
+            let result = get_solver_result_fallback(spot.villain_position, spot.hero_position, spot.stack_bb);
+            let [fold, call, raise] = result.responder_vs_open(class_idx);
             Some([raise, call, fold])
         }
         ScenarioKind::FacingThreeBet => {
-            let result = get_solver_result(spot.hero_position, spot.villain_position, spot.stack_bb);
-            let [fold, call, raise] = result.opener_vs_3bet(hand_class);
+            if let Some(freqs) = precomputed.lookup(spot.hero_position, spot.villain_position, spot.stack_bb, &label, "vs_3bet") {
+                if freqs.len() >= 3 {
+                    return Some([freqs[2], freqs[1], freqs[0]]);
+                }
+            }
+            let result = get_solver_result_fallback(spot.hero_position, spot.villain_position, spot.stack_bb);
+            let [fold, call, raise] = result.opener_vs_3bet(class_idx);
             Some([raise, call, fold])
         }
         ScenarioKind::FacingSqueeze => {
-            let result = get_solver_result(spot.hero_position, spot.villain_position, spot.stack_bb);
-            let [fold, call, raise] = result.opener_vs_3bet(hand_class);
+            if let Some(freqs) = precomputed.lookup(spot.hero_position, spot.villain_position, spot.stack_bb, &label, "vs_3bet") {
+                if freqs.len() >= 3 {
+                    return Some([freqs[2], freqs[1], freqs[0]]);
+                }
+            }
+            let result = get_solver_result_fallback(spot.hero_position, spot.villain_position, spot.stack_bb);
+            let [fold, call, raise] = result.opener_vs_3bet(class_idx);
             Some([raise, call, fold])
         }
     }
