@@ -50,7 +50,14 @@ pub fn evaluate_action(spot: JsValue, action: &str) -> Result<JsValue, JsValue> 
     let action = parse_action(action)?;
     let selected = spot.evaluation_for(action).clone();
     let best = spot.best_action().clone();
-    let is_correct = selected.action == best.action;
+    let mixed = spot.mixed_strategy();
+    let is_mixed = mixed.is_some();
+    let mixed_actions = mixed.clone().unwrap_or_default();
+    let is_correct = if is_mixed {
+        mixed_actions.iter().any(|m| m.action == selected.action)
+    } else {
+        selected.action == best.action
+    };
 
     let feedback = DecisionFeedback {
         selected_action: selected.action,
@@ -63,6 +70,8 @@ pub fn evaluate_action(spot: JsValue, action: &str) -> Result<JsValue, JsValue> 
         correct_fold_equity_pct: best.fold_equity_pct,
         pot_odds_pct: spot.pot_odds_pct,
         is_correct,
+        is_mixed,
+        mixed_actions,
         explanation: model::build_feedback_explanation(&spot, &selected, &best),
     };
 

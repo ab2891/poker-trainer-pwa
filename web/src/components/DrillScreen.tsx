@@ -290,11 +290,25 @@ export function DrillScreen() {
                 (feedback.is_correct ? "text-fg" : "text-fg-muted italic")
               }
             >
-              {feedback.is_correct ? "Correct" : "GTO says " + feedback.correct_action}
+              {feedback.is_mixed
+                ? feedback.is_correct
+                  ? "Correct (mixed spot)"
+                  : "GTO says mixed"
+                : feedback.is_correct
+                  ? "Correct"
+                  : "GTO says " + feedback.correct_action}
             </h2>
-            <p className="text-fg-subtle font-mono text-xs">
-              EV {feedback.selected_ev_bb.toFixed(2)} → {feedback.correct_ev_bb.toFixed(2)} bb
-            </p>
+            {feedback.is_mixed && feedback.mixed_actions.length > 0 ? (
+              <p className="text-fg-subtle font-mono text-xs">
+                {feedback.mixed_actions
+                  .map((m) => `${m.action} ${m.frequency_pct.toFixed(0)}%`)
+                  .join(" / ")}
+              </p>
+            ) : (
+              <p className="text-fg-subtle font-mono text-xs">
+                EV {feedback.selected_ev_bb.toFixed(2)} → {feedback.correct_ev_bb.toFixed(2)} bb
+              </p>
+            )}
           </div>
           <p className="text-fg-muted text-sm leading-relaxed">
             {feedback.explanation}

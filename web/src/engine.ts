@@ -103,6 +103,12 @@ export interface TrainingSpot {
   evaluations: ActionEvaluation[];
 }
 
+export interface MixedAction {
+  action: Action;
+  frequency_pct: number;
+  ev_bb: number;
+}
+
 export interface DecisionFeedback {
   selected_action: Action;
   selected_ev_bb: number;
@@ -114,6 +120,8 @@ export interface DecisionFeedback {
   correct_fold_equity_pct: number;
   pot_odds_pct: number;
   is_correct: boolean;
+  is_mixed: boolean;
+  mixed_actions: MixedAction[];
   explanation: string;
 }
 

@@ -15,6 +15,6 @@ pub mod wasm;
 
 pub use model::{
     generate_training_spot, Action, ActionEvaluation, Card, DecisionFeedback, FacingAction,
-    HoleCards, Position, PreflopAction, PreflopActionKind, Rank, ScenarioKind, Street, Suit,
-    TrainingConfig, TrainingMode, TrainingSpot,
+    HoleCards, MixedAction, Position, PreflopAction, PreflopActionKind, Rank, ScenarioKind, Street,
+    Suit, TrainingConfig, TrainingMode, TrainingSpot,
 };

@@ -390,6 +390,51 @@ impl TrainingSpot {
         self.hero_position.postflop_order() > self.villain_position.postflop_order()
     }
 
+    pub fn mixed_strategy(&self) -> Option<Vec<MixedAction>> {
+        let mut sorted: Vec<&ActionEvaluation> = self.evaluations.iter().collect();
+        sorted.sort_by(|a, b| b.ev_bb.total_cmp(&a.ev_bb));
+        if sorted.len() < 2 {
+            return None;
+        }
+
+        let best = sorted[0];
+        let second = sorted[1];
+        let gap = best.ev_bb - second.ev_bb;
+
+        let fold_ev = sorted
+            .iter()
+            .find(|e| e.action == Action::Fold)
+            .map(|e| e.ev_bb)
+            .unwrap_or(-10.0);
+
+        if second.ev_bb <= fold_ev + 0.15 {
+            return None;
+        }
+        if gap > 1.5 {
+            return None;
+        }
+
+        let best_freq = if gap < 0.25 {
+            50.0
+        } else {
+            (50.0 + (gap / 3.0) * 50.0).min(80.0)
+        };
+        let second_freq = 100.0 - best_freq;
+
+        Some(vec![
+            MixedAction {
+                action: best.action,
+                frequency_pct: (best_freq * 10.0).round() / 10.0,
+                ev_bb: best.ev_bb,
+            },
+            MixedAction {
+                action: second.action,
+                frequency_pct: (second_freq * 10.0).round() / 10.0,
+                ev_bb: second.ev_bb,
+            },
+        ])
+    }
+
     pub fn action_history_summary(&self) -> String {
         self.action_history
             .iter()
@@ -414,6 +459,13 @@ impl TrainingSpot {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MixedAction {
+    pub action: Action,
+    pub frequency_pct: f32,
+    pub ev_bb: f32,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DecisionFeedback {
     pub selected_action: Action,
     pub selected_ev_bb: f32,
@@ -425,6 +477,8 @@ pub struct DecisionFeedback {
     pub correct_fold_equity_pct: f32,
     pub pot_odds_pct: f32,
     pub is_correct: bool,
+    pub is_mixed: bool,
+    pub mixed_actions: Vec<MixedAction>,
     pub explanation: String,
 }
 
@@ -461,9 +515,16 @@ impl TrainingSession {
         let spot = self.current_spot.clone();
         let selected = spot.evaluation_for(action).clone();
         let best = spot.best_action().clone();
-        let is_correct = selected.action == best.action;
-
         self.answered_count += 1;
+
+        let mixed = spot.mixed_strategy();
+        let is_mixed = mixed.is_some();
+        let mixed_actions = mixed.unwrap_or_default();
+        let is_correct = if is_mixed {
+            mixed_actions.iter().any(|m| m.action == selected.action)
+        } else {
+            selected.action == best.action
+        };
         if is_correct {
             self.correct_count += 1;
         }
@@ -479,6 +540,8 @@ impl TrainingSession {
             correct_fold_equity_pct: best.fold_equity_pct,
             pot_odds_pct: spot.pot_odds_pct,
             is_correct,
+            is_mixed,
+            mixed_actions,
             explanation: build_feedback_explanation(&spot, &selected, &best),
         });
     }
