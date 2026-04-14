@@ -51,7 +51,7 @@ fn main() {
                     "Solving {}-vs-{} at {}bb (ip={})...",
                     opener.name, responder.name, stack_bb, opener_ip
                 );
-                let result = solver::solve_matchup(&table, stack_bb, opener_ip, 15000);
+                let result = solver::solve_matchup(&table, stack_bb, opener_ip, 2000);
 
                 let mut hands = serde_json::Map::new();
                 for class_idx in 0..NUM_CLASSES {

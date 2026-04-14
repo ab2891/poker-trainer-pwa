@@ -185,28 +185,35 @@ pub fn solve_matchup(
     let mut entries: HashMap<InfoSetKey, RegretEntry> = HashMap::new();
     let mut rng = rand::thread_rng();
 
+    // Chance-sampling CFR: for each iteration, we fix hero's class and enumerate
+    // over all villain classes. This gives dense regret updates — every info set
+    // for every hand gets ~NUM_CLASSES visits per iteration, not ~1.
     for _iter in 0..iterations {
         for traverser in [Player::Opener, Player::Responder] {
             let hero_class = rng.gen_range(0..NUM_CLASSES) as u8;
-            let villain_class = rng.gen_range(0..NUM_CLASSES) as u8;
-            if hero_class == villain_class {
-                continue;
-            }
+            for villain_class in 0..NUM_CLASSES {
+                if hero_class as usize == villain_class {
+                    continue;
+                }
 
-            cfr_traverse(
-                &config,
-                equity_table,
-                &mut entries,
-                NodeKind::OpenerOpen,
-                hero_class,
-                villain_class,
-                traverser,
-                1.0,
-                1.0,
-                0.0,
-                0.0,
-                &mut rng,
-            );
+                // Initial state: opener has not yet committed chips; responder is the BB
+                // and has posted 1bb already. The pot carries only the responder's blind
+                // initially (SB dead money is omitted for simplicity in this heads-up tree).
+                cfr_traverse(
+                    &config,
+                    equity_table,
+                    &mut entries,
+                    NodeKind::OpenerOpen,
+                    hero_class,
+                    villain_class as u8,
+                    traverser,
+                    0.0, // opener_invested — BTN/UTG/etc have not yet committed
+                    1.0, // responder_invested — BB has posted 1bb
+                    1.0, // pot — only the BB's blind is live money at this point
+                    0.0,
+                    &mut rng,
+                );
+            }
         }
     }
 
@@ -256,10 +263,10 @@ fn cfr_traverse<R: Rng>(
             apply_action(config, equity_table, node, action, opener_class, responder_class,
                          opener_invested, responder_invested, pot);
 
-        if let Some(tv) = terminal_value {
+        if let Some((op, rp)) = terminal_value {
             let val = match traverser {
-                Player::Opener => tv,
-                Player::Responder => -tv,
+                Player::Opener => op,
+                Player::Responder => rp,
             };
             entry.strategy_sum.iter_mut().zip(&strategy).for_each(|(s, &p)| *s += p);
             return val;
@@ -280,10 +287,10 @@ fn cfr_traverse<R: Rng>(
                 apply_action(config, equity_table, node, action, opener_class, responder_class,
                              opener_invested, responder_invested, pot);
 
-            if let Some(tv) = terminal_value {
+            if let Some((op, rp)) = terminal_value {
                 action_values[action] = match traverser {
-                    Player::Opener => tv,
-                    Player::Responder => -tv,
+                    Player::Opener => op,
+                    Player::Responder => rp,
                 };
             } else {
                 action_values[action] = cfr_traverse(
@@ -306,6 +313,17 @@ fn cfr_traverse<R: Rng>(
     }
 }
 
+// Payoff convention: returns (opener_payoff, responder_payoff) for terminal nodes.
+// NON-zero-sum — each player's realized equity is reduced by their own realization
+// factor, and the "missing" equity doesn't transfer to the other player (it represents
+// rake/variance/skill loss). This is critical: with zero-sum + IP bonus, BB was
+// getting an artificial subsidy for calling and over-defending.
+//
+// Realization factors (100bb cash):
+//   IP player (opener_ip=true for opener, or responder when opener OOP): 0.95
+//   OOP player: 0.82
+// These are tuned to produce reasonable GTO-like equilibria, not derived from first
+// principles. Could be better modeled with postflop tree solving but that's out of scope.
 #[allow(clippy::type_complexity)]
 fn apply_action(
     config: &GameConfig,
@@ -317,84 +335,102 @@ fn apply_action(
     opener_invested: f32,
     responder_invested: f32,
     pot: f32,
-) -> (Option<NodeKind>, f32, f32, f32, Option<f32>) {
+) -> (Option<NodeKind>, f32, f32, f32, Option<(f32, f32)>) {
+    // Realization factors for the "call" / "showdown" terminals where postflop plays.
+    let (opener_real, responder_real) = if config.opener_ip {
+        (0.95f32, 0.82f32)
+    } else {
+        (0.82f32, 0.95f32)
+    };
     match node {
         NodeKind::OpenerOpen => match action {
             0 => {
-                let payoff = -opener_invested;
-                (None, opener_invested, responder_invested, pot, Some(payoff))
+                // Opener folds before opening. Opener commits nothing, loses 0.
+                // Responder keeps their blind (net 0, since the SB/dead money isn't
+                // modeled here — responder's investment refunds itself).
+                (None, opener_invested, responder_invested, pot, Some((0.0, 0.0)))
             }
             _ => {
-                let new_pot = pot + config.open_size - opener_invested;
-                (Some(NodeKind::ResponderFacing), config.open_size, responder_invested, new_pot + responder_invested, None)
+                let new_opener_inv = config.open_size;
+                let new_pot = new_opener_inv + responder_invested;
+                (Some(NodeKind::ResponderFacing), new_opener_inv, responder_invested, new_pot, None)
             }
         },
         NodeKind::ResponderFacing => match action {
             0 => {
-                let payoff = pot + responder_invested;
-                (None, opener_invested, responder_invested, pot, Some(payoff - opener_invested))
+                // Responder folds to the open. Opener wins responder_invested (the blind).
+                // Responder loses responder_invested.
+                (None, opener_invested, responder_invested, pot, Some((responder_invested, -responder_invested)))
             }
             1 => {
-                let call_amount = config.open_size;
-                let total_pot = pot + call_amount;
+                // Responder calls. Both players reach showdown with postflop realization.
+                let new_resp_inv = config.open_size;
+                let total_pot = opener_invested + new_resp_inv;
                 let eq = equity_table.get(opener_class as usize, responder_class as usize);
-                let realization = if config.opener_ip { 0.90 } else { 0.95 };
-                let payoff = eq * realization * total_pot - opener_invested;
-                (None, opener_invested, call_amount, total_pot, Some(payoff))
+                let op = eq * opener_real * total_pot - opener_invested;
+                let rp = (1.0 - eq) * responder_real * total_pot - new_resp_inv;
+                (None, opener_invested, new_resp_inv, total_pot, Some((op, rp)))
             }
             _ => {
                 let new_resp_inv = config.three_bet_size;
-                let new_pot = config.open_size + config.three_bet_size + BLIND_TOTAL;
+                let new_pot = opener_invested + new_resp_inv;
                 (Some(NodeKind::OpenerFacing3Bet), opener_invested, new_resp_inv, new_pot, None)
             }
         },
         NodeKind::OpenerFacing3Bet => match action {
             0 => {
-                let payoff = -opener_invested;
-                (None, opener_invested, responder_invested, pot, Some(payoff))
+                // Opener folds to 3-bet. Opener loses their open amount.
+                // Responder wins opener's open contribution.
+                (None, opener_invested, responder_invested, pot, Some((-opener_invested, opener_invested)))
             }
             1 => {
-                let call_amount = config.three_bet_size;
-                let total_pot = call_amount + responder_invested + BLIND_TOTAL;
+                // Opener calls 3-bet. Both to showdown with postflop realization.
+                let new_opener_inv = config.three_bet_size;
+                let total_pot = new_opener_inv + responder_invested;
                 let eq = equity_table.get(opener_class as usize, responder_class as usize);
-                let realization = if config.opener_ip { 0.95 } else { 0.88 };
-                let payoff = eq * realization * total_pot - call_amount;
-                (None, call_amount, responder_invested, total_pot, Some(payoff))
+                let op = eq * opener_real * total_pot - new_opener_inv;
+                let rp = (1.0 - eq) * responder_real * total_pot - responder_invested;
+                (None, new_opener_inv, responder_invested, total_pot, Some((op, rp)))
             }
             _ => {
                 let new_opener_inv = config.four_bet_size;
-                let new_pot = config.four_bet_size + config.three_bet_size + BLIND_TOTAL;
+                let new_pot = new_opener_inv + responder_invested;
                 (Some(NodeKind::ResponderFacing4Bet), new_opener_inv, responder_invested, new_pot, None)
             }
         },
         NodeKind::ResponderFacing4Bet => match action {
             0 => {
-                let payoff = pot - opener_invested + responder_invested;
-                (None, opener_invested, responder_invested, pot, Some(payoff - opener_invested))
+                // Responder folds to 4-bet. Loses their 3-bet investment.
+                (None, opener_invested, responder_invested, pot, Some((responder_invested, -responder_invested)))
             }
             1 => {
-                let call_amount = config.four_bet_size;
-                let total_pot = opener_invested + call_amount + BLIND_TOTAL;
+                let new_resp_inv = config.four_bet_size;
+                let total_pot = opener_invested + new_resp_inv;
                 let eq = equity_table.get(opener_class as usize, responder_class as usize);
-                let payoff = eq * total_pot - opener_invested;
-                (None, opener_invested, call_amount, total_pot, Some(payoff))
+                let op = eq * opener_real * total_pot - opener_invested;
+                let rp = (1.0 - eq) * responder_real * total_pot - new_resp_inv;
+                (None, opener_invested, new_resp_inv, total_pot, Some((op, rp)))
             }
             _ => {
-                let allin = config.stack_bb;
-                let new_pot = config.four_bet_size + allin + BLIND_TOTAL;
-                (Some(NodeKind::OpenerFacing5Bet), opener_invested, allin, new_pot, None)
+                let new_resp_inv = config.stack_bb;
+                let new_pot = opener_invested + new_resp_inv;
+                (Some(NodeKind::OpenerFacing5Bet), opener_invested, new_resp_inv, new_pot, None)
             }
         },
         NodeKind::OpenerFacing5Bet => match action {
             0 => {
-                let payoff = -opener_invested;
-                (None, opener_invested, responder_invested, pot, Some(payoff))
+                // Opener folds to 5-bet. Loses their 4-bet investment.
+                (None, opener_invested, responder_invested, pot, Some((-opener_invested, opener_invested)))
             }
             _ => {
-                let total_pot = config.stack_bb * 2.0 + BLIND_TOTAL;
+                // All-in showdown. Raw equity — no postflop realization since there's
+                // no postflop decisions after a preflop all-in.
+                let new_opener_inv = config.stack_bb;
+                let total_pot = new_opener_inv + responder_invested;
                 let eq = equity_table.get(opener_class as usize, responder_class as usize);
-                let payoff = eq * total_pot - config.stack_bb;
-                (None, config.stack_bb, config.stack_bb, total_pot, Some(payoff))
+                let op = eq * total_pot - new_opener_inv;
+                let rp = (1.0 - eq) * total_pot - responder_invested;
+                (None, new_opener_inv, responder_invested, total_pot, Some((op, rp)))
             }
         },
     }
