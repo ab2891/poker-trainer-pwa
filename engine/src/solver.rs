@@ -13,7 +13,7 @@
 //!
 //! Terminal nodes resolve via preflop all-in equity from the equity table.
 
-use crate::equity::{EquityTable, HandClass, NUM_CLASSES};
+use crate::equity::{playability_bonus, EquityTable, HandClass, NUM_CLASSES};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -337,11 +337,17 @@ fn apply_action(
     pot: f32,
 ) -> (Option<NodeKind>, f32, f32, f32, Option<(f32, f32)>) {
     // Realization factors for the "call" / "showdown" terminals where postflop plays.
-    let (opener_real, responder_real) = if config.opener_ip {
+    // Base factors capture IP vs OOP advantage (0.95 IP, 0.82 OOP at 100bb).
+    // Playability bonuses adjust per hand — suited connectors realize more, offsuit
+    // junk realizes less — based on the hand's structural features.
+    let (opener_base, responder_base) = if config.opener_ip {
         (0.95f32, 0.82f32)
     } else {
         (0.82f32, 0.95f32)
     };
+    let opener_real = (opener_base + playability_bonus(opener_class as usize)).clamp(0.65, 1.10);
+    let responder_real =
+        (responder_base + playability_bonus(responder_class as usize)).clamp(0.65, 1.10);
     match node {
         NodeKind::OpenerOpen => match action {
             0 => {

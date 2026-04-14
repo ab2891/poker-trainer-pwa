@@ -12,6 +12,72 @@ use rand::thread_rng;
 
 pub const NUM_CLASSES: usize = 169;
 
+/// Playability bonus added to the per-player realization factor in the CFR solver.
+///
+/// Raw preflop equity + flat IP/OOP realization underestimates hands that flop well
+/// (suited connectors, small pairs, suited wheels) and overestimates hands that flop
+/// poorly (offsuit junk with gaps). This function captures the structural playability
+/// of each hand class as a delta in [-0.10, +0.12] to add to realization.
+///
+/// Returns a multiplier adjustment: +0.10 means "realize 10% more of your equity
+/// share than a flat-playability hand of the same raw equity." Tuned empirically
+/// against published GTO charts (Jonathan Little, GTO Wizard free charts).
+pub fn playability_bonus(class_idx: usize) -> f32 {
+    let hc = HandClass::from_index(class_idx);
+
+    if hc.high == hc.low {
+        // Pair: small pairs set-mine profitably (huge implied odds)
+        if hc.high <= 4 {
+            return 0.10; // 22, 33, 44, 55, 66
+        }
+        if hc.high <= 7 {
+            return 0.05; // 77, 88, 99
+        }
+        return 0.02; // TT+, medium implied odds
+    }
+
+    let gap = hc.high - hc.low;
+    let is_broadway = hc.high >= 9; // T or better
+
+    if hc.suited {
+        // Suited hands — flush draws, straight draws, often combo draws
+        if gap == 1 {
+            return 0.12; // Suited connectors: 98s, 87s, 76s, 65s, 54s
+        }
+        if gap == 2 {
+            return 0.08; // Suited one-gappers: 97s, 86s, 75s, 64s
+        }
+        if gap == 3 {
+            return 0.05; // Suited two-gappers: 96s, 85s
+        }
+        if hc.high == 12 && hc.low <= 4 {
+            return 0.09; // Suited wheel aces: A5s-A2s (flush + straight + nut blocker)
+        }
+        if hc.high == 12 {
+            return 0.05; // Suited aces generally
+        }
+        if is_broadway && hc.low >= 8 {
+            return 0.06; // Suited broadway: KQs, KJs, QJs, JTs, T9s
+        }
+        return 0.03; // Generic suited
+    }
+
+    // Offsuit — no flush potential, worse straight potential
+    if is_broadway && hc.low >= 9 {
+        return 0.0; // AKo, KQo, QJo etc. — fine as-is
+    }
+    if is_broadway && gap >= 2 && hc.low < 8 {
+        return -0.04; // Weak offsuit broadway with gap: KTo, K9o, QTo
+    }
+    if hc.high == 12 && hc.low < 9 {
+        return -0.05; // Weak offsuit aces: A9o, A8o, A7o (dominated kicker)
+    }
+    if gap >= 4 {
+        return -0.10; // Offsuit junk with big gap: Q5o, J6o, K4o, T4o
+    }
+    -0.03
+}
+
 static ALL_SUITS: [Suit; 4] = [Suit::Hearts, Suit::Diamonds, Suit::Clubs, Suit::Spades];
 static ALL_RANKS: [Rank; 13] = [
     Rank::Two,
